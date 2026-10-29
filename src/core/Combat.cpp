@@ -412,7 +412,12 @@ void Game::updateProjectiles(float dt) {
             p.targetPos = Vec2{target->x, target->y};
             const Vec2 d = p.targetPos - p.pos;
             const float dist = d.length();
-            if (dist < 6.0f) {
+            // The impact radius must cover a full frame of travel: a fast shot
+            // (the Sniper crosses 32px per frame) would otherwise step clean over
+            // a fixed 6px circle, miss, and then chase its target in circles for
+            // the rest of its life.
+            const float hitRadius = std::max(6.0f, p.vel.length() * dt + 2.0f);
+            if (dist < hitRadius) {
                 // ---- impact
                 // applyImpact mutates the enemy, so it needs a non-const reference.
                 Enemy* mutableTarget = nullptr;

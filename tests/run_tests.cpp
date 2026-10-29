@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cmath>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -680,6 +681,51 @@ int main() {
         const LuaContent content = loadLuaContent("/definitely/not/here.lua");
         check(!content.ok(), "a missing script is reported as an error");
         check(!content.errors.empty(), "an error message is produced");
+    }
+
+    // ---------------------------------------------------------------------
+    section("fast shots connect instead of sailing past their target");
+    {
+        // REGRESSION: the impact check used a fixed 6px radius while a fast
+        // shot crosses 32px in a single frame, so it routinely stepped clean
+        // over its target and then chased it in circles for its full 4s life.
+        Game g = makeGame(0, "easy");
+        const Cell s = routeStart(g);
+        Cell spot{-1, -1};
+        for (int dy = -3; dy <= 3 && spot.x < 0; ++dy) {
+            for (int dx = 0; dx <= 3 && spot.x < 0; ++dx) {
+                const Cell c{s.x + dx, s.y + dy};
+                if (g.canBuild(TowerKind::Sniper, c)) spot = c;
+            }
+        }
+        check(spot.x >= 0, "a sniper spot near the entrance was found");
+        if (spot.x >= 0) g.build(TowerKind::Sniper, spot);
+        g.startWaveNow();
+
+        // One sniper on purpose: nothing else can kill its target, so a miss
+        // shows up as a long chase of a target that stays alive.
+        const float dt = 1.0f / 60.0f;
+        std::map<int, float> chaseTime;   // projectile id -> seconds with a live target
+        std::map<int, char> seen;         // every projectile id ever observed
+        float worstChase = 0;
+        for (int i = 0; i < static_cast<int>(150.0f / dt); ++i) {
+            if (g.isGameOver() || g.isVictory()) break;
+            if (g.waveNumber() > 3) break;
+            g.update(dt);
+            for (const auto& p : g.projectiles()) {
+                seen[p.id] = 1;
+                if (g.enemyById(p.targetId) != nullptr) {
+                    const float t = chaseTime[p.id] + dt;
+                    chaseTime[p.id] = t;
+                    worstChase = std::max(worstChase, t);
+                }
+            }
+        }
+        check(static_cast<int>(seen.size()) >= 5,
+              "the sniper fired several shots (otherwise this test proves nothing)");
+        check(worstChase < 1.5f,
+              "every shot connected within 1.5s (worst chase was " +
+              std::to_string(worstChase) + "s)");
     }
 
     // ---------------------------------------------------------------------
