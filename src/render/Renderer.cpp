@@ -206,8 +206,20 @@ void Renderer::draw(const Game& g, const GameView& view) {
     const int mapX = (canvasW - mapW) / 2;
     const int mapY = 40 + (screenH - 40 - mapH) / 2;
 
+    // THE COORDINATE-SPACE BRIDGE — see MapView in Renderer.h. The renderer and the
+    // input code share this one object, so a click and a drawn enemy can never
+    // disagree about where a cell is.
+    const MapView mapView{static_cast<float>(mapX), static_cast<float>(mapY),
+                          static_cast<float>(ts), g.tileSize()};
+
+    // The core Vec2 -> raylib Vector2, at the last possible moment.
     auto cellPx = [&](Cell c) {
-        return Vector2{static_cast<float>(mapX + c.x * ts), static_cast<float>(mapY + c.y * ts)};
+        const Vec2 s = mapView.cellToScreen(c);
+        return Vector2{s.x, s.y};
+    };
+    auto worldToScreen = [&](Vec2 w) {
+        const Vec2 s = mapView.worldToScreen(w);
+        return Vector2{s.x, s.y};
     };
 
     // ---- terrain
@@ -323,23 +335,24 @@ void Renderer::draw(const Game& g, const GameView& view) {
         Color tint{255, 255, 255, static_cast<unsigned char>(alpha)};
         if (e.hitFlash > 0) tint = Color{255, 200, 200, static_cast<unsigned char>(alpha)};
         if (e.slowFactor < 1.0f) tint.r = static_cast<unsigned char>(tint.r * 0.7f);
+        const Vector2 ep = worldToScreen(Vec2{e.x, e.y});
         drawScaled(sprites_.enemySprites[static_cast<size_t>(texIndex)],
-                   static_cast<int>(e.x - size * 0.5f), static_cast<int>(e.y - size * 0.5f),
+                   static_cast<int>(ep.x - size * 0.5f), static_cast<int>(ep.y - size * 0.5f),
                    static_cast<int>(size), tint);
 
         if (e.maxHp > 60 || e.isBoss) {
             const float w = size * 0.9f;
-            DrawRectangle(e.x - w * 0.5f, e.y - size * 0.6f, w, 4, Color{26, 26, 30, 220});
+            DrawRectangle(ep.x - w * 0.5f, ep.y - size * 0.6f, w, 4, Color{26, 26, 30, 220});
             const float frac = std::max(0.0f, e.hp / static_cast<float>(e.maxHp));
-            DrawRectangle(e.x - w * 0.5f, e.y - size * 0.6f, w * frac, 4,
+            DrawRectangle(ep.x - w * 0.5f, ep.y - size * 0.6f, w * frac, 4,
                           e.isBoss ? Color{220, 90, 90, 255} : Color{240, 200, 90, 255});
         }
-        float sy = e.y - size * 0.75f;
-        if (e.slowTimer > 0)   { DrawCircleV({e.x - 8, sy}, 4, Color{110, 190, 240, 255}); sy -= 9; }
-        if (e.burnTimer > 0)   { DrawCircleV({e.x - 8, sy}, 4, Color{240, 140, 60, 255}); sy -= 9; }
-        if (e.poisonTimer > 0) { DrawCircleV({e.x - 8, sy}, 4, Color{140, 220, 90, 255}); sy -= 9; }
+        float sy = ep.y - size * 0.75f;
+        if (e.slowTimer > 0)   { DrawCircleV({ep.x - 8, sy}, 4, Color{110, 190, 240, 255}); sy -= 9; }
+        if (e.burnTimer > 0)   { DrawCircleV({ep.x - 8, sy}, 4, Color{240, 140, 60, 255}); sy -= 9; }
+        if (e.poisonTimer > 0) { DrawCircleV({ep.x - 8, sy}, 4, Color{140, 220, 90, 255}); sy -= 9; }
         if (e.archetype == EnemyArchetype::Attacker) {
-            DrawCircleLinesV({e.x, e.y}, size * 0.62f, Color{240, 90, 90, 160});
+            DrawCircleLinesV(ep, size * 0.62f, Color{240, 90, 90, 160});
         }
     }
 
@@ -359,14 +372,15 @@ void Renderer::draw(const Game& g, const GameView& view) {
             case ProjectileStyle::Pierce:      c = Color{240, 246, 255, 255}; r = 3; break;
             default: break;
         }
-        DrawCircleV({p.pos.x, p.pos.y}, r, c);
+        DrawCircleV(worldToScreen(Vec2{p.pos.x, p.pos.y}), r, c);
     }
 
     // ---- floating text
     for (const auto& f : g.floaters()) {
         const float a = std::max(0.0f, f.life / f.maxLife);
-        drawTextCentered(f.text, static_cast<int>(f.pos.x),
-                         static_cast<int>(f.pos.y - (1.0f - a) * 18), 16,
+        const Vector2 fp = worldToScreen(f.pos);
+        drawTextCentered(f.text, static_cast<int>(fp.x),
+                         static_cast<int>(fp.y - (1.0f - a) * 18), 16,
                          Color{static_cast<unsigned char>(f.color.r * a + 60 * (1 - a)),
                                static_cast<unsigned char>(f.color.g * a + 60 * (1 - a)),
                                static_cast<unsigned char>(f.color.b * a + 60 * (1 - a)),

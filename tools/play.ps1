@@ -20,6 +20,8 @@ public class Win {
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
     [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr h, int x, int y, int w, int ht, bool repaint);
     [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
+    [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
+    [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
     public struct RECT { public int Left, Top, Right, Bottom; }
     public struct POINT { public int X, Y; }
     public const uint LEFTDOWN = 0x0002, LEFTUP = 0x0004;
@@ -42,7 +44,11 @@ function Shot($path) {
     $w = $r.Right - $r.Left; $h = $r.Bottom - $r.Top
     $bmp = New-Object System.Drawing.Bitmap $w, $h
     $g = [System.Drawing.Graphics]::FromImage($bmp)
-    $g.CopyFromScreen($r.Left, $r.Top, 0, 0, $bmp.Size)
+    # PrintWindow captures THIS window even if something else is on top of it.
+    # CopyFromScreen would happily photograph an unrelated application.
+    $hdc = $g.GetHdc()
+    [Win]::PrintWindow($p.MainWindowHandle, $hdc, 2) | Out-Null
+    $g.ReleaseHdc($hdc)
     $bmp.Save($path)
     Write-Host "saved $path"
 }
@@ -58,6 +64,8 @@ $p = Get-Process towerfall -ErrorAction SilentlyContinue | Select-Object -First 
 [Win]::SetForegroundWindow($p.MainWindowHandle) | Out-Null
 # Pin the window to the top-left, so the click coordinates are predictable.
 [Win]::MoveWindow($p.MainWindowHandle, 0, 0, 1286, 749, $true) | Out-Null
+# Keep it above other windows for the duration of the run.
+[Win]::SetWindowPos($p.MainWindowHandle, [IntPtr](-1), 0, 0, 1286, 749, 0x0040) | Out-Null
 Start-Sleep -Seconds 1
 
 $r = New-Object Win+RECT
@@ -93,6 +101,15 @@ Shot("$Out/shot-play-0.png")
 
 $arrowIndex = 0            # Archer Post
 [Win]::Click($shopX, (ShopY $arrowIndex))
+Start-Sleep -Milliseconds 400
+Shot("$Out/shot-play-shop.png")
+
+# Also select by keyboard: the number keys pick a tower directly, which is a
+# second, independent path into build mode.
+[Win]::SetCursorPos($wx + 400, $clientY + 20)
+Add-Type -AssemblyName System.Windows.Forms
+[System.Windows.Forms.SendKeys]::SendWait("1")
+Start-Sleep -Milliseconds 400
 
 $cells = @(@(2,10), @(3,10), @(4,10), @(5,10), @(6,10))
 foreach ($c in $cells) {
@@ -107,7 +124,6 @@ Write-Host "built $($cells.Count) towers"
 # ---- call the wave early and watch it play
 [Win]::SetCursorPos($wx + 400, $clientY + 20)
 # SPACE via SendKeys
-Add-Type -AssemblyName System.Windows.Forms
 [System.Windows.Forms.SendKeys]::SendWait(" ")
 Start-Sleep -Seconds 6
 Shot("$Out/shot-play-2.png")

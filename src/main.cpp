@@ -45,10 +45,13 @@ Cell mouseToCell(const Game& game, Vector2 mouse) {
     const int mapX = (canvasW - mapW) / 2;
     const int mapY = 40 + (GetScreenHeight() - 40 - mapH) / 2;
 
-    const int cx = static_cast<int>((mouse.x - mapX) / ts);
-    const int cy = static_cast<int>((mouse.y - mapY) / ts);
-    if (!game.grid().inBounds(cx, cy)) return Cell{-1, -1};
-    return Cell{cx, cy};
+    // The SAME conversion the renderer uses, so a click always lands on the tile
+    // that is actually drawn under the cursor.
+    const MapView view{static_cast<float>(mapX), static_cast<float>(mapY),
+                       static_cast<float>(ts), game.tileSize()};
+    const Cell c = view.screenToCell(mouse.x, mouse.y);
+    if (!game.grid().inBounds(c.x, c.y)) return Cell{-1, -1};
+    return c;
 }
 
 /** Where the i-th tower button starts in the sidebar. */

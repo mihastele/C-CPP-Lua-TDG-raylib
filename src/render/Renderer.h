@@ -12,6 +12,7 @@
 #include "raylib.h"
 
 #include "core/Game.h"
+#include "core/MapView.h"
 
 namespace tf {
 

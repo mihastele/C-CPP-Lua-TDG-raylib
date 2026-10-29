@@ -13,6 +13,7 @@
 
 #include "core/Game.h"
 #include "core/LuaContent.h"
+#include "core/MapView.h"
 
 using namespace tf;
 
@@ -165,12 +166,115 @@ int buildDefence(Game& g, TowerKind kind = TowerKind::Arrow, int maxTowers = 30)
     return built;
 }
 
+Cell routeCellNear(const Game& g, Vec2 world) {
+    Cell best{0, 0};
+    float bestD = 1e30f;
+    for (const Cell& c : g.level().waypoints) {
+        const Vec2 w = g.cellToWorld(c);
+        const float dx = w.x - world.x, dy = w.y - world.y;
+        const float d = dx * dx + dy * dy;
+        if (d < bestD) { bestD = d; best = c; }
+    }
+    return best;
+}
+
 }  // namespace
 
 // ===========================================================================
 
 int main() {
     std::printf("towerfall — headless test suite\n");
+
+    // ---------------------------------------------------------------------
+    // THE COORDINATE-SPACE BRIDGE.
+    //
+    // The simulation works in 48-pixel world tiles; the map is DRAWN at a
+    // different pixel size so it fits the window. Anything drawn in world pixels
+    // (enemies, projectiles) has to be scaled by the same factor as the terrain.
+    //
+    // This bug is not subtle: with the wrong factor the enemy leaves the path,
+    // starts a tile high and drifts off to the right, because the error grows
+    // with distance from the origin. These checks would have caught it.
+    section("coordinate space (world <-> screen)");
+    {
+        Game g = makeGame();
+        const float world = g.tileSize();
+
+        // The real case: the display tile size is smaller than the world tile size.
+        const int display = std::min(static_cast<int>(980 / g.grid().width()),
+                                     static_cast<int>((720 - 40) / g.grid().height()));
+        check(display != static_cast<int>(world),
+              "the display tile size really does differ from the world tile size "
+              "(otherwise this test proves nothing)");
+
+        const MapView view{10.0f, 100.0f, static_cast<float>(display), world};
+
+        // A cell's world position must land on that cell when converted to screen.
+        for (int x = 0; x < g.grid().width(); ++x) {
+            for (int y = 0; y < g.grid().height(); ++y) {
+                const Cell c{x, y};
+                const Vec2 w = g.cellToWorld(c);
+                const Vec2 s = view.worldToScreen(w);
+                const Cell back = view.screenToCell(s.x, s.y);
+                if (back.x != c.x || back.y != c.y) {
+                    check(false, "cell " + std::to_string(x) + "," + std::to_string(y) +
+                                     " does not round-trip world -> screen -> cell");
+                    x = g.grid().width();
+                    break;
+                }
+            }
+        }
+        check(true, "every cell round-trips world -> screen -> cell");
+
+        // The centre of a cell must land inside that cell on screen.
+        const Cell mid{5, 6};
+        const Vec2 worldPos = g.cellToWorld(mid);
+        const Vec2 screenPos = view.worldToScreen(worldPos);
+        const Cell got = view.screenToCell(screenPos.x, screenPos.y);
+        check(got.x == mid.x && got.y == mid.y,
+              "a world position on the path maps back to the same cell on screen");
+
+        // The scale factor must be the display size over the world size.
+        checkEqF(view.scale(), static_cast<float>(display) / world, 0.0001f,
+                 "the world -> screen scale is display tiles / world tiles");
+
+        // screen -> world is the exact inverse of world -> screen.
+        const Vec2 back = view.screenToWorld(screenPos.x, screenPos.y);
+        checkEqF(back.x, worldPos.x, 0.01f, "screen -> world inverts world -> screen (x)");
+        checkEqF(back.y, worldPos.y, 0.01f, "screen -> world inverts world -> screen (y)");
+
+        // THE REGRESSION ITSELF: an enemy standing on a path cell must be drawn
+        // over that same path cell. Before the fix the enemy was drawn at its raw
+        // world pixels, which is a different place entirely.
+        const Cell pathCell = routeCellNear(g, g.cellToWorld(routeStart(g)));
+        const Vec2 enemyWorld = g.cellToWorld(pathCell);
+        const Vec2 enemyScreen = view.worldToScreen(enemyWorld);
+        const Cell enemyCell = view.screenToCell(enemyScreen.x, enemyScreen.y);
+        check(enemyCell.x == pathCell.x && enemyCell.y == pathCell.y,
+              "an enemy on a path cell is DRAWN over that path cell, not off it");
+
+        // And the error must be small at the far corner of the map too, which is
+        // where the old code drifted furthest.
+        //
+        // cellToWorld gives the CENTRE of a cell; cellToScreen gives its CORNER.
+        // So the centre on screen is the corner plus half a display tile.
+        const Cell far{g.grid().width() - 1, g.grid().height() - 1};
+        const Vec2 farWorld = g.cellToWorld(far);
+        const Vec2 farScreen = view.worldToScreen(farWorld);
+        const Vec2 farCorner = view.cellToScreen(far);
+        const float half = view.tileSize * 0.5f;
+        checkEqF(farScreen.x, farCorner.x + half, 0.01f,
+                 "the far corner of the map does not drift (x)");
+        checkEqF(farScreen.y, farCorner.y + half, 0.01f,
+                 "the far corner of the map does not drift (y)");
+
+        // The drift the old code produced, stated as a number: at the far corner
+        // the enemy was drawn a full tile away from the terrain under it.
+        const float oldScale = 1.0f;  // the old code drew world pixels as screen pixels
+        const float oldX = view.originX + farWorld.x * oldScale;
+        check(std::fabs(oldX - farScreen.x) > 15.0f,
+              "the old (unscaled) drawing was off by more than 15px at the far corner");
+    }
 
     // ---------------------------------------------------------------------
     section("grid and pathfinding");
