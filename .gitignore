@@ -1,0 +1,107 @@
+# ============================================================================
+#  Towerfall — .gitignore
+#
+#  The important entry is `third_party/raylib-5.5/examples` (56 MB of sample
+#  games we never build). Everything under `third_party/*/src` IS needed, so
+#  the vendored dependencies stay in the repository: the build then works with
+#  no network access and no package manager.
+# ============================================================================
+
+# ---------------------------------------------------------------- build output
+build/
+build*/
+out/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+Testing/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.csproj
+*.user
+
+# ---- object files, libraries and executables
+*.o
+*.obj
+*.lo
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.out
+*.app
+*.gch
+*.pch
+*.d
+
+# ---------------------------------------------------------------- raylib
+# The build output directory for the vendored raylib.
+third_party/raylib-build/
+# raylib's own example games: 56 MB, and BUILD_EXAMPLES=OFF means we never
+# build them. Everything else in raylib-5.5 IS needed.
+third_party/raylib-5.5/examples/
+# IDE project files for other editors.
+third_party/raylib-5.5/projects/
+# The code generator, only needed to regenerate rlgl.h from a newer glfw.
+third_party/raylib-5.5/parser/
+
+# ---------------------------------------------------------------- lua
+# Lua's interpreter and compiler are built separately by its own Makefile; we
+# compile the library sources directly, so those binaries are never wanted.
+third_party/lua/lua
+third_party/lua/luac
+third_party/lua/*.o
+third_party/lua/*.obj
+
+# ---------------------------------------------------------------- generated
+# Output from the tools. NOTE: docs/sprites.png is referenced by the README
+# and IS committed — only the root-level copy (a stray run of the tool) is
+# ignored.
+docs/out*.png
+/tools/out*.png
+*.sprites.png.tmp
+/sprites.png
+
+# ---------------------------------------------------------------- editors
+.vscode/
+.idea/
+.vs/
+*.swp
+*.swo
+*~
+.\#*
+\#*#
+.cache/
+.clangd/
+compile_flags.json
+
+# ---------------------------------------------------------------- OS junk
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ---------------------------------------------------------------- logs
+*.log
+npm-debug.log*
+yarn-error.log*
+*.out.log
+
+# ---------------------------------------------------------------- local data
+# A local save or config, if one is ever added.
+*.save
+*.cfg.local
+local.properties
