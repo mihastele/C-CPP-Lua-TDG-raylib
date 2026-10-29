@@ -41,6 +41,16 @@ void drawScaled(Texture2D tex, int x, int y, int size, Color tint) {
                    Vector2{0, 0}, 0.0f, tint);
 }
 
+/** Draws a texture centered at (cx, cy) rotated by rotDeg degrees. */
+void drawRotated(Texture2D tex, float cx, float cy, float size, float rotDeg, Color tint) {
+    DrawTexturePro(tex,
+                   Rectangle{0.0f, 0.0f, static_cast<float>(tex.width),
+                             static_cast<float>(tex.height)},
+                   Rectangle{cx, cy, size, size},
+                   Vector2{size * 0.5f, size * 0.5f},
+                   rotDeg, tint);
+}
+
 /** The distance between two points. raylib 5.5 has no Vector2Distance. */
 float dist2(Vector2 a, Vector2 b) {
     const float dx = a.x - b.x, dy = a.y - b.y;
@@ -306,8 +316,11 @@ void Renderer::draw(const Game& g, const GameView& view) {
         const Vector2 p = cellPx(t.cell);
         const int texIndex = towerTextureIndex(t.kind, t.level);
         if (texIndex >= 0 && texIndex < static_cast<int>(sprites_.towerSprites.size())) {
-            drawScaled(sprites_.towerSprites[static_cast<size_t>(texIndex)],
-                       static_cast<int>(p.x), static_cast<int>(p.y), ts, Color{255, 255, 255, 255});
+            const float cx = p.x + ts * 0.5f;
+            const float cy = p.y + ts * 0.5f;
+            const float rotDeg = t.angle * (180.0f / 3.1415926535f);
+            drawRotated(sprites_.towerSprites[static_cast<size_t>(texIndex)],
+                        cx, cy, static_cast<float>(ts), rotDeg, Color{255, 255, 255, 255});
         }
         for (int i = 0; i < t.level; ++i) {
             DrawRectangle(p.x + 3 + i * 6, p.y + ts - 7, 4, 4, kGold);
@@ -336,9 +349,9 @@ void Renderer::draw(const Game& g, const GameView& view) {
         if (e.hitFlash > 0) tint = Color{255, 200, 200, static_cast<unsigned char>(alpha)};
         if (e.slowFactor < 1.0f) tint.r = static_cast<unsigned char>(tint.r * 0.7f);
         const Vector2 ep = worldToScreen(Vec2{e.x, e.y});
-        drawScaled(sprites_.enemySprites[static_cast<size_t>(texIndex)],
-                   static_cast<int>(ep.x - size * 0.5f), static_cast<int>(ep.y - size * 0.5f),
-                   static_cast<int>(size), tint);
+        const float rotDeg = e.angle * (180.0f / 3.1415926535f);
+        drawRotated(sprites_.enemySprites[static_cast<size_t>(texIndex)],
+                    ep.x, ep.y, size, rotDeg, tint);
 
         if (e.maxHp > 60 || e.isBoss) {
             const float w = size * 0.9f;

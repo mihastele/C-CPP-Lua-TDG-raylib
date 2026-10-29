@@ -42,6 +42,7 @@ struct Enemy {
     float speed = 1;
     int armor = 0;
     int bounty = 0;
+    float angle = 0;                // facing direction, radians (0 = East, +pi/2 = South)
 
     // path following
     std::vector<Cell> path;

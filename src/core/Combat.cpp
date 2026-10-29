@@ -101,6 +101,9 @@ void Game::updateEnemies(float dt) {
                 const Vec2 target = cellToWorld(e.path[e.pathIndex]);
                 const Vec2 d = target - Vec2{e.x, e.y};
                 const float dist = d.length();
+                if (d.lengthSquared() > 0.0001f) {
+                    e.angle = std::atan2(d.y, d.x);
+                }
                 if (dist < speed * dt + 1.0f) {
                     e.x = target.x;
                     e.y = target.y;
@@ -136,6 +139,9 @@ void Game::updateEnemies(float dt) {
             // Flyers fly straight to the exit, ignoring the path and the towers.
             const Vec2 goalPos = cellToWorld(goal_);
             const Vec2 d = goalPos - Vec2{e.x, e.y};
+            if (d.lengthSquared() > 0.0001f) {
+                e.angle = std::atan2(d.y, d.x);
+            }
             if (d.length() < speed * dt + 1.0f) {
                 e.x = goalPos.x;
                 e.y = goalPos.y;
@@ -175,6 +181,9 @@ void Game::updateEnemies(float dt) {
                 // No towers: walk to the exit.
                 const Vec2 goalPos = cellToWorld(goal_);
                 const Vec2 d = goalPos - Vec2{e.x, e.y};
+                if (d.lengthSquared() > 0.0001f) {
+                    e.angle = std::atan2(d.y, d.x);
+                }
                 if (d.length() > 0.5f) {
                     const Vec2 step = d.normalized() * (speed * dt);
                     e.x += step.x;
@@ -192,6 +201,9 @@ void Game::updateEnemies(float dt) {
             const Vec2 targetPos = cellToWorld(target->cell);
             const Vec2 d = targetPos - Vec2{e.x, e.y};
             const float attackRange = def.attackRange * ts;
+            if (d.lengthSquared() > 0.0001f) {
+                e.angle = std::atan2(d.y, d.x);
+            }
 
             if (d.length() <= attackRange) {
                 // In range: attack.
@@ -337,9 +349,10 @@ void Game::updateTowers(float dt) {
 
         // Face the target.
         const Vec2 origin = cellToWorld(t.cell);
-        const float want = (Vec2{te->x, te->y} - origin).normalized().x >= 0
-                               ? 0.0f : 3.14159f;   // the renderer refines the angle
-        t.angle = want;
+        const Vec2 toTarget = Vec2{te->x, te->y} - origin;
+        if (toTarget.lengthSquared() > 0.0001f) {
+            t.angle = std::atan2(toTarget.y, toTarget.x);
+        }
 
         // fireAt mutates the target, so it needs a non-const reference.
         Enemy* mutableTe = nullptr;

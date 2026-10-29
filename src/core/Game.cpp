@@ -333,6 +333,11 @@ void Game::spawnEnemy(EnemyKind kind) {
     e.isBoss = def.isBoss;
     e.x = cellToWorld(start_).x;
     e.y = cellToWorld(start_).y;
+    const Vec2 goalPos = cellToWorld(goal_);
+    const Vec2 initialDir = goalPos - Vec2{e.x, e.y};
+    if (initialDir.lengthSquared() > 0.0001f) {
+        e.angle = std::atan2(initialDir.y, initialDir.x);
+    }
 
     enemies_.push_back(e);
 }
