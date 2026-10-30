@@ -599,6 +599,137 @@ int main() {
     }
 
     // ---------------------------------------------------------------------
+    section("titan surge escalates exponentially every 4 waves after wave 5");
+    {
+        // Check tier progression: every 4 waves after the first titan spawn (wave 5)
+        checkEq(titanSurgeTier(1), 0, "wave 1 is tier 0");
+        checkEq(titanSurgeTier(5), 0, "wave 5 (first titan) is tier 0");
+        checkEq(titanSurgeTier(8), 0, "wave 8 is tier 0");
+        checkEq(titanSurgeTier(9), 1, "wave 9 is tier 1 (4 waves after first titan)");
+        checkEq(titanSurgeTier(12), 1, "wave 12 is tier 1");
+        checkEq(titanSurgeTier(13), 2, "wave 13 is tier 2 (8 waves after first titan)");
+        checkEq(titanSurgeTier(17), 3, "wave 17 is tier 3 (12 waves after first titan)");
+        checkEq(titanSurgeTier(21), 4, "wave 21 is tier 4 (16 waves after first titan)");
+
+        // Check exponential scaling formulas on normal difficulty
+        TitanSurgeStats t1 = calcTitanSurge(9, "normal");
+        TitanSurgeStats t2 = calcTitanSurge(13, "normal");
+        TitanSurgeStats t3 = calcTitanSurge(17, "normal");
+        check(t1.tier == 1, "t1 tier is 1");
+        check(t2.tier == 2, "t2 tier is 2");
+        check(t3.tier == 3, "t3 tier is 3");
+        check(t2.hpMultiplier > t1.hpMultiplier * 1.8f, "hp scales exponentially (t2 > t1 * 1.8)");
+        check(t3.hpMultiplier > t2.hpMultiplier * 1.8f, "hp scales exponentially (t3 > t2 * 1.8)");
+        check(t2.armorBonus > t1.armorBonus, "armor scales with surge tier");
+        check(t2.speedMultiplier > t1.speedMultiplier, "speed scales with surge tier");
+        check(t2.siegeDamageMultiplier > t1.siegeDamageMultiplier, "attacker damage scales exponentially");
+
+        // Game speed, endless mode, and auto wave controls
+        Game g;
+        checkEq(g.gameSpeed(), 1, "default speed is 1x");
+        g.cycleGameSpeed();
+        checkEq(g.gameSpeed(), 2, "speed cycles to 2x");
+        g.cycleGameSpeed();
+        checkEq(g.gameSpeed(), 3, "speed cycles to 3x");
+        g.cycleGameSpeed();
+        checkEq(g.gameSpeed(), 1, "speed cycles back to 1x");
+
+        check(!g.endlessMode(), "endless mode is initially off");
+        g.toggleEndlessMode();
+        check(g.endlessMode(), "endless mode can be toggled on");
+
+        check(!g.autoWave(), "auto wave is initially off");
+        g.toggleAutoWave();
+        check(g.autoWave(), "auto wave can be toggled on");
+
+        // Dynamic wave generation beyond wave 15
+        WaveDef w16 = generateWave(16, "normal");
+        checkEq(w16.number, 16, "wave 16 can be generated dynamically");
+        WaveDef w20 = generateWave(20, "normal");
+        check(w20.boss, "wave 20 is a titan boss wave");
+    }
+
+    // ---------------------------------------------------------------------
+    section("tactical commands: repair, fortified shielding, and overdrive supercharge");
+    {
+        Game g = makeGame();
+        Cell s = routeStart(g);
+        Cell spot{s.x + 1, s.y + 1};
+        check(g.build(TowerKind::Arrow, spot), "built test tower");
+        int towerId = g.towers().back().id;
+
+        // Damage the tower
+        g.damageTower(towerId, 45);
+        check(g.towers().back().hp < g.towers().back().maxHp, "tower took damage");
+
+        // Repair and shield
+        int repCost = 0;
+        check(g.canRepair(towerId, &repCost), "tower can be repaired");
+        checkEq(repCost, 20, "repair cost is 20 gold");
+        int goldBefore = g.gold();
+        check(g.repair(towerId), "repair executed successfully");
+        checkEq(g.towers().back().hp, g.towers().back().maxHp, "hp fully restored");
+        checkEq(g.towers().back().shieldHp, 50, "gained fortified shield");
+        checkEq(g.gold(), goldBefore - 20, "gold deducted for repair");
+        check(!g.canRepair(towerId), "cannot repair when already fully fortified");
+
+        // Damage against shield
+        g.damageTower(towerId, 30);
+        checkEq(g.towers().back().shieldHp, 20, "shield absorbed the damage");
+        checkEq(g.towers().back().hp, g.towers().back().maxHp, "hp was protected by shield");
+
+        // Overdrive requires Level 3
+        check(!g.canOverdrive(towerId), "level 1 tower cannot overdrive");
+        g.upgrade(towerId);
+        check(!g.canOverdrive(towerId), "level 2 tower cannot overdrive");
+        g.upgrade(towerId);
+        checkEq(g.towers().back().level, 3, "tower reached level 3");
+
+        float baseRange = g.effectiveRange(g.towers().back());
+        check(g.canOverdrive(towerId), "level 3 tower can enter overdrive");
+        check(g.overdrive(towerId), "overdrive activated");
+        check(g.towers().back().overdriveRemaining > 8.0f, "overdrive duration active");
+        check(g.effectiveRange(g.towers().back()) > baseRange, "effective range increased during overdrive");
+
+        // Combat stats validation
+        check(g.stats().totalGoldSpent > 0, "combat stats tracked gold spent");
+        check(g.stats().towersBuilt >= 1, "combat stats tracked towers built");
+    }
+
+    // ---------------------------------------------------------------------
+    section("commander abilities, powerups, and elemental synergies");
+    {
+        Game g = makeGame();
+        check(g.canCastAbility(CommanderAbility::Meteor), "meteor can be cast initially");
+        check(g.canCastAbility(CommanderAbility::CryoFreeze), "cryo freeze can be cast initially");
+        check(g.canCastAbility(CommanderAbility::MidasRush), "midas rush can be cast initially");
+
+        // Cast Cryo Freeze
+        int goldBefore = g.gold();
+        check(g.castCryoFreeze(), "cryo freeze cast successfully");
+        checkEq(g.gold(), goldBefore - 40, "gold deducted for cryo freeze");
+        check(g.abilityCooldown(CommanderAbility::CryoFreeze) > 0.0f, "cooldown active after cast");
+        check(!g.canCastAbility(CommanderAbility::CryoFreeze), "cannot cast while on cooldown");
+
+        // Spawn a powerup and collect it
+        Vec2 dropPos = g.cellToWorld(Cell{3, 3});
+        g.spawnPowerup(dropPos, PowerupKind::GoldCache);
+        checkEq(static_cast<int>(g.powerups().size()), 1, "powerup spawned on map");
+        check(g.collectPowerupAt(dropPos, 30.0f), "powerup collected by player");
+        checkEq(static_cast<int>(g.powerups().size()), 0, "powerup consumed");
+        check(g.stats().powerupsCollected >= 1, "powerup collection tracked in stats");
+
+        // Cast Orbital Meteor Strike
+        goldBefore = g.gold();
+        check(g.castMeteor(dropPos), "meteor cast successfully");
+        checkEq(g.gold(), goldBefore - 35, "gold deducted for meteor");
+        check(g.abilityCooldown(CommanderAbility::Meteor) > 0.0f, "meteor on cooldown");
+
+        // Elemental synergy tracking
+        check(g.stats().commanderAbilitiesCast >= 2, "commander abilities tracked in combat stats");
+    }
+
+    // ---------------------------------------------------------------------
     section("the game can be lost");
     {
         Game g = makeGame();

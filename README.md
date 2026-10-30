@@ -93,9 +93,31 @@ but never spirals into an unwinnable state.
 | **Left click** a built tower | Select it (shows its range and stats). |
 | **U** / **X** | Upgrade / sell the selected tower. |
 | **Space** | Call the next wave early. |
+| **F** | Toggle game speed (1x / 2x / 3x). |
+| **A** | Toggle auto-call wave mode. |
+| **E** | Toggle endless titan escalation mode. |
 | **Tab** / **R** / **H** | Next level / restart / help. |
 | **Right click** or **Esc** | Cancel. |
 | **1**–**9**, **0** | Pick a tower by keyboard. |
+
+## Titan Surge: Exponential Difficulty Escalation
+
+The first **Titan** (Colossus) spawns at **Wave 5**.
+Starting every 4 waves after the first Titan spawn, the horde undergoes exponential escalation:
+
+- **Wave 5**: The First Titan arrives.
+- **Wave 9 (Titan Surge I)**: $+85\%$ enemy HP ($2.15\times$ on Hard), $+12\%$ speed, $+2$ armor, $+35\%$ attacker siege damage, and **Elite Affixes** unlock!
+- **Wave 13 (Titan Cataclysm II)**: $3.42\times$ enemy HP ($4.62\times$ on Hard), $+24\%$ speed, $+4$ armor, $+82\%$ siege damage, and multi-Titan assaults!
+- **Wave 17 (Titan Apocalypse III)**: $6.33\times$ enemy HP ($9.94\times$ on Hard), $+36\%$ speed, $+6$ armor, and $65\%$ elite mutation rate!
+- **Wave 21+ (Titan Extinction IV+)**: Over $11.7\times$ HP with continuous Titan swarms in Endless Mode!
+
+### Elite Enemy Affixes
+During Titan Surges, enemies mutate with distinct visual auras and gameplay abilities:
+- **Frenzied** *(Fiery Aura)*: $+35\%$ speed and $+25\%$ attack rate.
+- **Juggernaut** *(Amber Shield)*: $+50\%$ HP, $+4$ armor, and total immunity to slows and stuns.
+- **Regenerating** *(Emerald Glow)*: Rapidly regenerates health if damaged.
+- **Vengeful** *(Crimson Spikes)*: Explodes on death, dealing 24 damage to nearby towers and enraging adjacent enemies.
+- **Shielded** *(Cyan Barrier)*: Absorbs 50% of incoming damage with a protective energy barrier.
 
 ## The sprites are generated, not drawn by hand
 
@@ -255,10 +277,86 @@ see it: `cmake -S . -B build -DCMAKE_CXX_COMPILER=g++`.
 defined. The project only defines it on non-Windows platforms, so this means a stale CMake cache:
 delete `build/` and reconfigure.
 
+## Controls & Shortcuts
+
+| Key / Action | Function |
+|---|---|
+| **Left Click** (Sidebar) | Select a tower blueprint to build |
+| **Left Click** (Map) | Place selected tower / inspect placed tower / collect powerup orb |
+| **Right Click / ESC** | Cancel placement or deselect tower / cancel targeting |
+| **[1] / [Q]** | **Orbital Meteor Strike** (35g): 500 AoE damage + 4s burn |
+| **[2] / [W]** | **Cryo Freeze Blizzard** (40g): Freezes all enemies on map for 3.5s |
+| **[3] / [Z]** | **Midas Gold Rush** (45g): Transmutes 5 creeps into gold + grants +50% bounty |
+| **[U]** | Upgrade selected tower to next level |
+| **[X]** | Sell selected tower for 60% refund |
+| **[T]** | Cycle target priority (**First**, **Strongest**, **Weakest**, **Titans**) |
+| **[R]** | **Repair & Fortify** selected tower (restores 100% HP + 50 shield) / Restart level if none selected |
+| **[O]** | **Overdrive Supercharge** selected Level 3 tower (+75% fire rate, +25% range, electrical arcs) |
+| **[P]** | Toggle **Path Flow & Threat Heatmap Overlay** |
+| **[S]** | Open **Combat Performance & Titan Debrief Screen** (damage breakdown per tower class & MVP) |
+| **[M]** | Toggle **Procedural Audio Mute** |
+| **[F]** | Toggle Simulation Speed (**1x / 2x / 3x**) |
+| **[E]** | Toggle **Endless Titan Escalation Mode** (continues infinitely beyond Wave 15) |
+| **[A]** | Toggle **Auto-Wave Mode** |
+| **[D]** | Toggle Difficulty (**Easy / Normal / Hard / Nightmare**) |
+| **SPACE** | Call the next wave early for bonus points |
+| **[H]** | In-game help overlay |
+
+---
+
+## Commander Powers & Elemental Synergies
+
+### ⚡ Commander Abilities (Bottom HUD)
+- **Orbital Meteor Strike (`[1]` / `[Q]`)**: Targets a 2.5-tile radius with an orbital firestrike dealing 500 damage and applying 4s burn ($50\text{ DPS}$).
+- **Cryo Freeze Wave (`[2]` / `[W]`)**: Flash freezes all ground and flying enemies on the battlefield for 3.5 seconds.
+- **Midas Gold Rush (`[3]` / `[Z]`)**: Instantly executes 5 lowest-HP non-boss creeps into gold nuggets and boosts all kill bounties by $+50\%$ for 8 seconds.
+
+### 💥 Elemental Synergies
+- **Thermal Shock**: Inflicting `Slow` on a Burning enemy (or `Burn` on a Slowed enemy) triggers an instantaneous thermal explosion dealing $+75\%$ burst damage and 50% splash damage to nearby creeps.
+- **Superconductor Arc**: Striking a Poisoned enemy with Tesla lightning boosts damage by $+50\%$ and adds $+2$ extra chain jumps.
+- **Armor Shatter**: High-impact strikes (Ballista, Longshot, Mortar) permanently strip 30% of an enemy's armor.
+
+### 💎 Interactive Powerup Orbs
+Titans (100%), Elite Affix enemies (100%), and standard creeps (14%) drop floating interactive powerup orbs that can be clicked or auto-vacuumed by nearby towers:
+- 💰 **Gold Cache**: $+30$ instant bonus gold.
+- ⚡ **Overcharge Battery**: Grants $+6$ seconds of Overdrive to all towers on the map.
+- ❄️ **Cryo Core**: Freezes all enemies for 2.5 seconds.
+- 🛡️ **Core Repair**: Restores $+1$ Core Life.
+
+---
+
+## Titan Surge Exponential Difficulty
+
+Starting at **Wave 5**, the first Titan boss (*Colossus*) spawns. Every 4 waves after Wave 5 (**Waves 9, 13, 17, 21, 25...**), a new **Titan Surge Tier** is unleashed:
+
+$$\text{Tier} = \lfloor \frac{\text{Wave} - 5}{4} \rfloor$$
+
+- **Exponential HP Growth**: Multiplied by $(1.85)^{\text{Tier}}$ on Normal, $(2.15)^{\text{Tier}}$ on Hard/Nightmare.
+- **Siege Damage Escalation**: Attackers deal $(1.35)^{\text{Tier}}$ damage to towers.
+- **Titan Boss Abilities**:
+  - *Earthquake Stomp* (Colossus): Disables adjacent towers with seismic shockwaves.
+  - *Serrated Cleave* (Ravager): Sweeping cleaves damaging multiple nearby fortifications.
+- **Elite Enemy Affixes**:
+  - `Frenzied`: $+35\%$ speed and $+25\%$ attack rate (pulsing orange aura).
+  - `Juggernaut`: $+80\%$ max HP, $+4$ armor, immune to slow & stun (gold aura).
+  - `Regenerating`: Heals $4\%$ max HP per second (green aura).
+  - `Vengeful`: Explodes on death, inflicting damage and enraging nearby enemies (crimson aura).
+  - `Shielded`: Absorbs incoming damage with a protective energy barrier (cyan aura).
+
+---
+
+## Zero-Asset Procedural Audio
+
+All sound effects are synthesized mathematically in memory at runtime as 16-bit PCM waveforms:
+- Laser & arrow sweeps, low-pass noise explosions, harmonic chimes for construction/upgrades, coin chimes for sales, low-frequency saw sweeps for Titan roars, and dissonant brass horns for Titan Surge alerts.
+- Completely offline, 100% asset-free, and handles headless environments gracefully.
+
+---
+
 ## Testing
 
 ```bash
-./build/towerfall_tests          # 317 checks, no window needed
+./build/towerfall_tests          # 388 checks, no window needed
 python tools/check_levels.py     # every route is walkable
 ./build/towerfall_sprites out.png  # every sprite has pixels
 ```
@@ -328,14 +426,12 @@ raylib from source. It takes a minute or two; after that, incremental builds are
 The split matters: `core/` has no graphics dependency at all, which is why the rules can be
 tested exhaustively and quickly. The renderer reads the simulation and never writes to it.
 
-## Notes and limitations
+## Notes and highlights
 
-- **There is no audio.** The game is silent. Sound would be the single biggest addition to the
-  feel of it.
-- **Enemies do not attack each other**, and there is no status-effect immunity beyond the
-  slow-immune flag.
-- **One level is a battle**, not a puzzle: the difficulty ramps over 15 waves, but the maps are
-  hand-drawn rather than generated, and there is no endless mode.
+- **Zero-Asset Procedural Audio Engine**: Built-in 16-bit PCM waveform synthesizer generates sound effects dynamically with pure mathematics in memory.
+- **Titan Surge Exponential Mode**: Brutal escalating difficulty every 4 waves after Wave 5 with active Titan boss abilities and elite affixes.
+- **Interactive Tactical Defense**: Active tower repair, fortified shielding, and Level 3 Overdrive supercharge give defenders responsive counter-play against Titan sieges.
+- **Visual Intelligence**: Real-time path flow vectors, tower range heatmaps, and comprehensive post-game combat analytics debrief.
 - **The balance is judged by a scripted player**, not by real playtesting. The script spreads
   towers along the route and upgrades with surplus gold; a human will do better in places and
   worse in others.

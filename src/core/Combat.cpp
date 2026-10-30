@@ -16,15 +16,49 @@ float clampf(float v, float lo, float hi) {
 
 void Game::update(float dt) {
     if (dt <= 0) return;
-    if (gameOver_ || victory_) return;
+    if (gameOver_ || (victory_ && !endlessMode_)) return;
 
-    updateWave(dt);
-    updateEnemies(dt);
-    updateTowers(dt);
-    updateProjectiles(dt);
+    const float effectiveDt = dt * static_cast<float>(gameSpeed_);
+
+    updateWave(effectiveDt);
+    updateEnemies(effectiveDt);
+    updateTowers(effectiveDt);
+    updateProjectiles(effectiveDt);
+
+    // Update commander ability cooldowns and Midas gold rush timer
+    for (int i = 0; i < 3; ++i) {
+        if (abilityCooldowns_[i] > 0) abilityCooldowns_[i] -= effectiveDt;
+    }
+    if (goldRushTimer_ > 0) goldRushTimer_ -= effectiveDt;
+
+    // Update powerup lifetimes and auto-vacuum by nearby towers
+    const float ts = static_cast<float>(config_.tileSize);
+    for (size_t i = 0; i < powerups_.size(); ) {
+        powerups_[i].life -= effectiveDt;
+        powerups_[i].bobOffset += effectiveDt * 3.5f;
+
+        // Auto-vacuum: if any tower is within 1.3 tiles, tower collects it!
+        bool collected = false;
+        for (const auto& t : towers_) {
+            if (cellToWorld(t.cell).distanceTo(powerups_[i].pos) <= ts * 1.35f) {
+                collectPowerup(powerups_[i].id);
+                collected = true;
+                break;
+            }
+        }
+        if (collected) {
+            continue;
+        }
+
+        if (powerups_[i].life <= 0) {
+            powerups_.erase(powerups_.begin() + i);
+        } else {
+            ++i;
+        }
+    }
 
     // Floating text lifetimes.
-    for (auto& f : floatingTexts_) f.life -= dt;
+    for (auto& f : floatingTexts_) f.life -= effectiveDt;
     floatingTexts_.erase(
         std::remove_if(floatingTexts_.begin(), floatingTexts_.end(),
                        [](const FloatingText& f) { return f.life <= 0; }),
@@ -80,9 +114,50 @@ void Game::updateEnemies(float dt) {
             if (e.hp <= 0) { killEnemy(e); continue; }
         }
 
-        // Slow-immune enemies ignore slows entirely.
+        // Elite Affix: Regenerator heals HP over time
+        if (e.affix == EnemyAffix::Regenerator && e.hp < e.maxHp && e.hp > 0) {
+            const int heal = std::max(1, static_cast<int>(e.maxHp * 0.04f * dt));
+            e.hp = std::min(e.maxHp, e.hp + heal);
+        }
+
+        // Slow-immune enemies (and Juggernaut affixes) ignore slows and stuns entirely.
         const EnemyDef& def = enemyDef(e.kind);
-        if (def.slowResistant) e.slowFactor = 1.0f;
+        if (def.slowResistant || e.affix == EnemyAffix::Juggernaut) {
+            e.slowFactor = 1.0f;
+            e.stunTimer = 0.0f;
+        }
+
+        // ---- Titan Boss Special Abilities
+        if (e.isBoss && e.hp > 0) {
+            e.abilityCooldown -= dt;
+            if (e.abilityCooldown <= 0) {
+                if (e.kind == EnemyKind::Boss) {
+                    // Colossus Titan: Earthquake Stomp!
+                    e.abilityCooldown = std::max(6.0f, 10.0f - titanSurgeTier() * 1.0f);
+                    pushEvent(GameEvent::TitanAbility, "EARTHQUAKE STOMP!", Vec2{e.x, e.y}, 1);
+                    addFloat(Vec2{e.x, e.y}, "EARTHQUAKE STOMP!", {1.0f, 0.45f, 0.2f, 1.0f});
+                    const float stompRange = 2.5f * ts;
+                    for (auto& t : towers_) {
+                        if (Vec2{e.x, e.y}.distanceTo(cellToWorld(t.cell)) <= stompRange) {
+                            t.cooldown = std::max(t.cooldown, 2.0f);
+                            addFloat(cellToWorld(t.cell), "DISRUPTED", {0.8f, 0.8f, 0.8f, 0.9f});
+                        }
+                    }
+                } else if (e.kind == EnemyKind::BossSiege) {
+                    // Ravager Titan: Berserk Cleave!
+                    e.abilityCooldown = std::max(5.0f, 8.5f - titanSurgeTier() * 0.8f);
+                    pushEvent(GameEvent::TitanAbility, "RAVAGE CLEAVE!", Vec2{e.x, e.y}, 2);
+                    addFloat(Vec2{e.x, e.y}, "RAVAGE CLEAVE!", {1.0f, 0.2f, 0.3f, 1.0f});
+                    const float cleaveRange = 2.0f * ts;
+                    for (auto& t : towers_) {
+                        if (Vec2{e.x, e.y}.distanceTo(cellToWorld(t.cell)) <= cleaveRange) {
+                            damageTower(t.id, 20);
+                            addFloat(cellToWorld(t.cell), "-20", {1.0f, 0.3f, 0.2f, 1.0f});
+                        }
+                    }
+                }
+            }
+        }
 
         if (e.stunTimer > 0) continue;   // stunned: no movement, no attacking
 
@@ -209,9 +284,12 @@ void Game::updateEnemies(float dt) {
                 // In range: attack.
                 e.attackCooldown -= dt;
                 if (e.attackCooldown <= 0) {
-                    e.attackCooldown = 1.0f / std::max(0.1f, def.attackRate);
-                    damageTower(target->id, def.damage);
-                    addFloat(targetPos, "-" + std::to_string(def.damage),
+                    const float rateMult = (e.affix == EnemyAffix::Frenzied) ? 1.35f : 1.0f;
+                    e.attackCooldown = 1.0f / std::max(0.1f, def.attackRate * rateMult);
+                    TitanSurgeStats surge = calcTitanSurge(waveNumber_, difficulty_);
+                    const int finalDmg = std::max(1, static_cast<int>(def.damage * surge.siegeDamageMultiplier));
+                    damageTower(target->id, finalDmg);
+                    addFloat(targetPos, "-" + std::to_string(finalDmg),
                              {1.0f, 0.6f, 0.2f, 1.0f});
                 }
             } else {
@@ -233,7 +311,9 @@ void Game::updateEnemies(float dt) {
 
 float Game::effectiveRange(const Tower& t) const {
     const TowerDef& def = towerDef(t.kind);
-    return def.level(t.level - 1).range * static_cast<float>(config_.tileSize);
+    float r = def.level(t.level - 1).range * static_cast<float>(config_.tileSize);
+    if (t.overdriveRemaining > 0) r *= 1.25f;
+    return r;
 }
 
 int Game::effectiveDamage(const Tower& t) const {
@@ -263,13 +343,25 @@ int Game::findTarget(const Tower& t) const {
         const float d = origin.distanceTo(Vec2{e.x, e.y});
         if (d > range) continue;
 
-        // Target selection: prefer whatever is closest to the exit, so enemies
-        // that are nearly through get shot first. Bosses get a slight priority
-        // boost so they are not ignored behind a crowd.
         const Vec2 goalPos = cellToWorld(goal_);
         const float progress = goalPos.distanceTo(Vec2{e.x, e.y});
         float score = -progress;
-        if (e.isBoss) score += 30.0f;
+
+        switch (t.targetPriority) {
+            case TargetPriority::First:
+                score = -progress + (e.isBoss ? 30.0f : 0.0f);
+                break;
+            case TargetPriority::Strongest:
+                score = static_cast<float>(e.hp) + (e.isBoss ? 1000.0f : 0.0f);
+                break;
+            case TargetPriority::Weakest:
+                score = -static_cast<float>(e.hp);
+                break;
+            case TargetPriority::Titans:
+                score = (e.isBoss ? 50000.0f : 0.0f) - progress;
+                break;
+        }
+
         if (score > bestScore) { bestScore = score; best = e.id; }
     }
     return best;
@@ -321,19 +413,28 @@ void Game::updateTowers(float dt) {
 
     for (auto& t : towers_) {
         if (t.justBuilt) t.justBuilt = false;
+        if (t.overdriveRemaining > 0) {
+            t.overdriveRemaining -= dt;
+            t.cooldown -= dt * 0.8f; // Cooldown ticks down much faster during Overdrive
+        }
         const TowerDef& def = towerDef(t.kind);
         const TowerLevel& lv = def.level(t.level - 1);
 
         // ---- Aura towers (Tar Pit) damage everything in range continuously.
         if (def.mode == AttackMode::Aura) {
             if (def.kind == TowerKind::Beacon) continue;   // the beacon deals no damage
-            const float r = lv.range * ts;
+            const float r = lv.range * ts * (t.overdriveRemaining > 0 ? 1.25f : 1.0f);
             const Vec2 origin = cellToWorld(t.cell);
             for (auto& e : enemies_) {
                 if (origin.distanceTo(Vec2{e.x, e.y}) > r) continue;
                 if (!enemyIsTargetable(t, e)) continue;
-                applyDamage(e, static_cast<int>(lv.auraDps * dt),
+                const int dmg = static_cast<int>(lv.auraDps * dt * (t.overdriveRemaining > 0 ? 1.5f : 1.0f));
+                applyDamage(e, dmg,
                             lv.slowFactor, lv.slowDuration, 0, 0, StatusEffect::Slow);
+                t.totalDamage += dmg;
+                combatStats_.totalDamageDealt += dmg;
+                size_t kIdx = static_cast<size_t>(t.kind);
+                if (kIdx < 12) combatStats_.damageByTowerKind[kIdx] += dmg;
                 if (e.hp <= 0) killEnemy(e);
             }
             continue;
@@ -359,7 +460,8 @@ void Game::updateTowers(float dt) {
         for (auto& e : enemies_) if (e.id == te->id) mutableTe = &e;
         if (!mutableTe) continue;
         fireAt(t, *mutableTe);
-        t.cooldown = 1.0f / std::max(0.05f, lv.fireRate);
+        const float fireRate = lv.fireRate * (t.overdriveRemaining > 0 ? 1.75f : 1.0f);
+        t.cooldown = 1.0f / std::max(0.05f, fireRate);
     }
 
     // Remove enemies killed by auras.
@@ -446,10 +548,25 @@ void Game::updateProjectiles(float dt) {
 }
 
 void Game::applyImpact(Projectile& p, Enemy& target) {
-    const TowerDef& def = towerDef(towers_.empty() ? TowerKind::Arrow : towers_[0].kind);
-    (void)def;
+    for (auto& t : towers_) {
+        if (t.id == p.towerId) {
+            t.totalDamage += p.damage;
+            combatStats_.totalDamageDealt += p.damage;
+            size_t kIdx = static_cast<size_t>(t.kind);
+            if (kIdx < 12) combatStats_.damageByTowerKind[kIdx] += p.damage;
+            break;
+        }
+    }
 
     // ---- direct damage
+    if (p.chainTargets > 0 && target.poisonTimer > 0) {
+        p.damage = static_cast<int>(p.damage * 1.5f);
+        p.chainTargets += 2;
+        combatStats_.combosTriggered++;
+        addFloat(Vec2{target.x, target.y}, "SUPERCONDUCTOR!", {0.8f, 0.45f, 1.0f, 1.0f});
+        pushEvent(GameEvent::ComboTriggered, "SUPERCONDUCTOR", Vec2{target.x, target.y});
+    }
+
     applyDamage(target, p.damage, p.slowFactor, p.slowDuration,
                 p.statusDuration, p.statusDps, StatusEffect::None);
     target.hitFlash = 0.12f;
@@ -539,6 +656,47 @@ void Game::applyDamage(Enemy& e, int amount, float slowFactor, float slowDuratio
         dmg = static_cast<int>(amount * (1.0f - std::min(0.75f, e.armor / 100.0f)));
     }
     if (dmg < 1) dmg = 1;   // armour never makes a hit a total miss
+
+    // Shielded affix absorbs 50% damage until barrier is exhausted
+    if (e.affix == EnemyAffix::Shielded && e.shieldHp > 0) {
+        float absorb = std::min(static_cast<float>(dmg) * 0.5f, e.shieldHp);
+        e.shieldHp -= absorb;
+        dmg = std::max(1, static_cast<int>(dmg - absorb));
+        addFloat(Vec2{e.x, e.y}, "SHIELD", {0.35f, 0.85f, 1.0f, 0.9f});
+    }
+
+    // ---- Elemental Synergies ----
+    // 1. Thermal Shock: Burning enemy hit by Slow, or Slowed enemy hit by Burn
+    if (e.burnTimer > 0 && slowFactor > 0 && slowDuration > 0) {
+        const int shockDmg = static_cast<int>(amount * 0.75f) + 35;
+        dmg += shockDmg;
+        combatStats_.combosTriggered++;
+        addFloat(Vec2{e.x, e.y}, "THERMAL SHOCK! +" + std::to_string(shockDmg), {1.0f, 0.55f, 0.15f, 1.0f});
+        pushEvent(GameEvent::ComboTriggered, "THERMAL SHOCK", Vec2{e.x, e.y}, shockDmg);
+        const float aoeR = 1.4f * static_cast<float>(config_.tileSize);
+        for (auto& other : enemies_) {
+            if (other.id != e.id && Vec2{e.x, e.y}.distanceTo(Vec2{other.x, other.y}) <= aoeR) {
+                other.hp -= shockDmg / 2;
+                other.hitFlash = 0.1f;
+            }
+        }
+    } else if (e.slowTimer > 0 && effect == StatusEffect::Burn) {
+        const int shockDmg = static_cast<int>(amount * 0.75f) + 35;
+        dmg += shockDmg;
+        combatStats_.combosTriggered++;
+        addFloat(Vec2{e.x, e.y}, "THERMAL SHOCK! +" + std::to_string(shockDmg), {1.0f, 0.55f, 0.15f, 1.0f});
+        pushEvent(GameEvent::ComboTriggered, "THERMAL SHOCK", Vec2{e.x, e.y}, shockDmg);
+    }
+
+    // 2. Armor Shatter: Heavy attacks shatter armored units
+    if (e.armor > 0 && amount >= 50) {
+        const int shatter = std::max(1, static_cast<int>(e.armor * 0.30f));
+        e.armor -= shatter;
+        combatStats_.combosTriggered++;
+        addFloat(Vec2{e.x, e.y}, "SHATTER -" + std::to_string(shatter) + " ARMOR", {1.0f, 0.85f, 0.35f, 1.0f});
+        pushEvent(GameEvent::ComboTriggered, "ARMOR SHATTER", Vec2{e.x, e.y});
+    }
+
     e.hp -= dmg;
 
     if (effect == StatusEffect::Burn && statusDuration > 0) {
@@ -564,12 +722,49 @@ void Game::applyDamage(Enemy& e, int amount, float slowFactor, float slowDuratio
 void Game::killEnemy(Enemy& e) {
     if (e.hp > 0) return;
     e.hp = 0;
-    gold_ += e.bounty;
-    score_ += e.isBoss ? 500 : (10 + e.bounty * 2);
+    int bounty = e.bounty;
+    if (goldRushTimer_ > 0) bounty = static_cast<int>(bounty * 1.5f);
+    gold_ += bounty;
+    score_ += e.isBoss ? 500 : (10 + bounty * 2);
     kills_++;
-    addFloat(Vec2{e.x, e.y}, "+" + std::to_string(e.bounty),
+    combatStats_.totalEnemiesKilled++;
+    combatStats_.totalGoldEarned += bounty;
+    if (e.isBoss) {
+        combatStats_.titansDefeated++;
+    }
+    addFloat(Vec2{e.x, e.y}, "+" + std::to_string(bounty),
              {1.0f, 0.85f, 0.3f, 1.0f});
-    pushEvent(GameEvent::EnemyKilled, enemyDef(e.kind).name, Vec2{e.x, e.y}, e.bounty);
+    pushEvent(GameEvent::EnemyKilled, enemyDef(e.kind).name, Vec2{e.x, e.y}, bounty);
+
+    // Powerup orb drop
+    if (e.isBoss) {
+        PowerupKind drop = (e.id % 2 == 0) ? PowerupKind::OverchargeAll : PowerupKind::CryoFreeze;
+        if (lives_ < config_.startingLives && (e.id % 3 == 0)) drop = PowerupKind::CoreLife;
+        spawnPowerup(Vec2{e.x, e.y}, drop);
+    } else if (e.affix != EnemyAffix::None) {
+        PowerupKind drop = (e.id % 2 == 0) ? PowerupKind::GoldCache : PowerupKind::OverchargeAll;
+        spawnPowerup(Vec2{e.x, e.y}, drop);
+    } else if ((e.id % 6) == 0) {
+        spawnPowerup(Vec2{e.x, e.y}, PowerupKind::GoldCache);
+    }
+
+    // Vengeful Affix death retribution
+    if (e.affix == EnemyAffix::Vengeful) {
+        addFloat(Vec2{e.x, e.y}, "VENGEANCE!", {1.0f, 0.25f, 0.25f, 1.0f});
+        const float radius = 1.6f * static_cast<float>(config_.tileSize);
+        for (auto& t : towers_) {
+            if (Vec2{e.x, e.y}.distanceTo(cellToWorld(t.cell)) <= radius) {
+                damageTower(t.id, 24);
+                addFloat(cellToWorld(t.cell), "-24", {1.0f, 0.35f, 0.2f, 1.0f});
+            }
+        }
+        for (auto& other : enemies_) {
+            if (other.id != e.id && Vec2{e.x, e.y}.distanceTo(Vec2{other.x, other.y}) <= radius) {
+                other.speed *= 1.25f;
+                addFloat(Vec2{other.x, other.y}, "ENRAGED", {1.0f, 0.6f, 0.15f, 1.0f});
+            }
+        }
+    }
 }
 
 }  // namespace tf

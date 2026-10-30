@@ -27,9 +27,12 @@ struct Tower {
     float angle = 0;                // facing, radians
     int hp = 100;
     int maxHp = 100;
+    int shieldHp = 0;               // energy shield / fortified barrier
     float totalDamage = 0;          // lifetime damage, for the score screen
     float buffed = 0;               // >0 when a War Beacon is boosting this tower
+    float overdriveRemaining = 0;   // >0 when supercharged (2x rate, +range, sparks)
     bool justBuilt = false;         // one-frame flag for the "built" animation
+    TargetPriority targetPriority = TargetPriority::First;
 };
 
 struct Enemy {
@@ -63,6 +66,12 @@ struct Enemy {
     float spawnFade = 1;            // 1 -> 0 as it fades in
     bool isBoss = false;
     bool reachedExit = false;
+
+    // Titan Surge Mutators & Abilities
+    EnemyAffix affix = EnemyAffix::None;
+    float shieldHp = 0;
+    float maxShieldHp = 0;
+    float abilityCooldown = 6.0f;   // Titan special boss abilities
 };
 
 struct Projectile {
@@ -98,6 +107,15 @@ struct FloatingText {
     Color4 color{1, 1, 1, 1};
 };
 
+struct PowerupDrop {
+    int id = 0;
+    PowerupKind kind = PowerupKind::GoldCache;
+    Vec2 pos;
+    float life = 14.0f;
+    float maxLife = 14.0f;
+    float bobOffset = 0.0f;
+};
+
 // ------------------------------------------------------------------ events
 
 enum class GameEvent : uint8_t {
@@ -114,6 +132,15 @@ enum class GameEvent : uint8_t {
     GameOver,
     Victory,
     BossIncoming,
+    TitanSurge,
+    TitanAbility,
+    TowerRepaired,
+    TowerOverdrive,
+    MeteorImpact,
+    CryoFreezeCast,
+    MidasRushCast,
+    PowerupCollected,
+    ComboTriggered,
 };
 
 struct EventLog {
@@ -132,7 +159,9 @@ public:
     // ---- setup
     void loadLevel(const LevelDef& level);
     void setDifficulty(const std::string& d);
+    void cycleDifficulty();
     const LevelDef& level() const { return level_; }
+    const std::string& difficulty() const { return difficulty_; }
 
     // ---- state
     int lives() const { return lives_; }
@@ -145,6 +174,19 @@ public:
     float waveTimer() const { return waveTimer_; }
     float prepTimer() const { return prepTimer_; }
     const std::string& statusMessage() const { return statusMessage_; }
+    int titanSurgeTier() const { return tf::titanSurgeTier(waveNumber_); }
+
+    int gameSpeed() const { return gameSpeed_; }
+    void setGameSpeed(int s) { gameSpeed_ = std::max(1, std::min(4, s)); }
+    void cycleGameSpeed() { gameSpeed_ = (gameSpeed_ % 3) + 1; }
+
+    bool endlessMode() const { return endlessMode_; }
+    void setEndlessMode(bool e) { endlessMode_ = e; }
+    void toggleEndlessMode() { endlessMode_ = !endlessMode_; }
+
+    bool autoWave() const { return autoWave_; }
+    void setAutoWave(bool a) { autoWave_ = a; }
+    void toggleAutoWave() { autoWave_ = !autoWave_; }
 
     const Grid& grid() const { return grid_; }
     const std::vector<Tower>& towers() const { return towers_; }
@@ -153,6 +195,21 @@ public:
     const std::vector<FloatingText>& floaters() const { return floatingTexts_; }
     const std::vector<EventLog>& events() const { return events_; }
     const std::vector<WaveDef>& waves() const { return waves_; }
+    const std::vector<PowerupDrop>& powerups() const { return powerups_; }
+
+    // ---- commander abilities
+    float abilityCooldown(CommanderAbility a) const;
+    float abilityMaxCooldown(CommanderAbility a) const;
+    int abilityCost(CommanderAbility a) const;
+    bool canCastAbility(CommanderAbility a) const;
+    bool castMeteor(Vec2 worldPos);
+    bool castCryoFreeze();
+    bool castMidasRush();
+
+    // ---- powerup interaction
+    bool collectPowerup(int powerupId);
+    bool collectPowerupAt(Vec2 worldPos, float radius = 28.0f);
+    void spawnPowerup(Vec2 pos, PowerupKind kind);
 
     // ---- player actions
     //
@@ -164,6 +221,14 @@ public:
     bool canUpgrade(int towerId, std::string* reason = nullptr) const;
     bool upgrade(int towerId);
     bool sell(int towerId);
+    void cycleTowerTargetPriority(int towerId);
+    void setTowerTargetPriority(int towerId, TargetPriority priority);
+
+    // Active tower tactical commands
+    bool canRepair(int towerId, int* cost = nullptr) const;
+    bool repair(int towerId);
+    bool canOverdrive(int towerId, int* cost = nullptr) const;
+    bool overdrive(int towerId);
 
     // ---- simulation
     void update(float dt);
@@ -191,6 +256,12 @@ public:
     // waves — this total is monotonic.
     int towerDamageTaken() const { return towerDamageTaken_; }
     int towersLost() const { return towersLost_; }
+    const CombatStats& stats() const { return combatStats_; }
+
+    Cell start() const { return start_; }
+    Cell goal() const { return goal_; }
+    float effectiveRange(const Tower& t) const;
+    int effectiveDamage(const Tower& t) const;
 
     GameConfig& config() { return config_; }
     const GameConfig& config() const { return config_; }
@@ -210,8 +281,6 @@ private:
     int findTarget(const Tower& t) const;
     void fireAt(Tower& t, Enemy& target);
     void applyImpact(Projectile& p, Enemy& target);
-    float effectiveRange(const Tower& t) const;
-    int effectiveDamage(const Tower& t) const;
     bool enemyIsTargetable(const Tower& t, const Enemy& e) const;
     void addFloat(const Vec2& pos, const std::string& text, Color4 color);
 
@@ -226,6 +295,7 @@ private:
     std::vector<FloatingText> floatingTexts_;
     std::vector<EventLog> events_;
     std::vector<WaveDef> waves_;
+    std::vector<PowerupDrop> powerups_;
 
     Cell start_{0, 0};
     Cell goal_{0, 0};
@@ -233,6 +303,7 @@ private:
     int nextTowerId_ = 1;
     int nextEnemyId_ = 1;
     int nextProjectileId_ = 1;
+    int nextPowerupId_ = 1;
 
     int lives_ = 20;
     int gold_ = 260;
@@ -249,6 +320,14 @@ private:
     float waveTimer_ = 0;        // time since the wave started
     float prepTimer_ = 0;        // time until the next wave
     std::string statusMessage_ = "";
+
+    int gameSpeed_ = 1;          // 1x, 2x, 3x simulation speed
+    bool endlessMode_ = false;   // continues past wave 15 into infinite titan escalation
+    bool autoWave_ = false;      // automatically triggers next wave when prep finishes
+    int lastAnnouncedSurgeTier_ = 0;
+    CombatStats combatStats_;
+    float abilityCooldowns_[3] = {0.0f, 0.0f, 0.0f};
+    float goldRushTimer_ = 0.0f;
 
     // Spawn schedule: flattened from the wave's groups.
     struct PendingSpawn {

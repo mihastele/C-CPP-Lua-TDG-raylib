@@ -37,4 +37,7 @@ const WaveDef& waveDef(int number);
 // Builds the wave list for a level difficulty: "easy", "normal" or "hard".
 std::vector<WaveDef> buildWaves(const std::string& difficulty, int waveCount = 15);
 
+// Generates an individual wave (used for dynamic endless mode and wave scaling).
+WaveDef generateWave(int waveNumber, const std::string& difficulty);
+
 }  // namespace tf

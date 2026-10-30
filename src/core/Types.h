@@ -77,6 +77,63 @@ enum class TowerKind : uint8_t {
     Beacon = 11,   // aura: buffs nearby towers
 };
 
+enum class TargetPriority : uint8_t {
+    First = 0,     // closest to the exit (default)
+    Strongest = 1, // highest maximum & current HP (boss killer)
+    Weakest = 2,   // lowest current HP (finishers)
+    Titans = 3,    // prioritizes bosses/titans over standard mobs
+};
+
+enum class PowerupKind : uint8_t {
+    None = 0,
+    GoldCache,       // +30 bonus gold
+    OverchargeAll,   // +6s overdrive for all towers on map
+    CryoFreeze,      // freezes all creeps for 3s
+    CoreLife,        // +1 Core Life
+};
+
+inline const char* powerupName(PowerupKind k) {
+    switch (k) {
+        case PowerupKind::GoldCache:     return "Gold Cache (+30g)";
+        case PowerupKind::OverchargeAll: return "Overcharge All Towers";
+        case PowerupKind::CryoFreeze:    return "Cryo Blizzard";
+        case PowerupKind::CoreLife:      return "Core Repair (+1 Life)";
+        default: return "";
+    }
+}
+
+enum class CommanderAbility : uint8_t {
+    Meteor = 0,     // Orbital meteor bombardment
+    CryoFreeze,     // Flash freeze blizzard
+    MidasRush,      // Transmute weak creeps into gold
+    Count
+};
+
+struct CombatStats {
+    uint64_t totalDamageDealt = 0;
+    int titansDefeated = 0;
+    int maxSurgeTier = 0;
+    int totalEnemiesKilled = 0;
+    int totalGoldEarned = 0;
+    int totalGoldSpent = 0;
+    int towersBuilt = 0;
+    int towersLost = 0;
+    int commanderAbilitiesCast = 0;
+    int powerupsCollected = 0;
+    int combosTriggered = 0;
+    uint64_t damageByTowerKind[12] = {0};
+};
+
+inline const char* targetPriorityName(TargetPriority p) {
+    switch (p) {
+        case TargetPriority::First:     return "First";
+        case TargetPriority::Strongest: return "Strongest";
+        case TargetPriority::Weakest:   return "Weakest";
+        case TargetPriority::Titans:    return "Titans";
+        default: return "First";
+    }
+}
+
 enum class EnemyKind : uint8_t {
     Grunt = 0,      // baseline walker
     Runner = 1,     // fast, low hp
@@ -97,6 +154,84 @@ enum class StatusEffect : uint8_t {
     Poison = 3,
     Stun = 4,
 };
+
+enum class EnemyAffix : uint8_t {
+    None = 0,
+    Frenzied = 1,     // +35% move speed, +25% attack rate
+    Juggernaut = 2,   // +80% max HP, +4 armor, immune to slow
+    Regenerator = 3,  // heals 4% max HP per second
+    Vengeful = 4,     // explodes on death, damages towers in radius & speeds up adjacent enemies
+    Shielded = 5,     // absorbs incoming damage with energy barrier
+};
+
+inline const char* affixName(EnemyAffix a) {
+    switch (a) {
+        case EnemyAffix::Frenzied:    return "Frenzied";
+        case EnemyAffix::Juggernaut:  return "Juggernaut";
+        case EnemyAffix::Regenerator: return "Regenerating";
+        case EnemyAffix::Vengeful:    return "Vengeful";
+        case EnemyAffix::Shielded:    return "Shielded";
+        default: return "";
+    }
+}
+
+// ---- Titan Surge Difficulty Calculations ----
+// First titan spawn is wave 5 (Colossus).
+// Every 4 waves after wave 5 (waves 9, 13, 17, 21...), a new Titan Surge Tier begins,
+// exponentially escalating HP, speed, armor, attacker siege damage, and elite affixes.
+inline int titanSurgeTier(int wave) {
+    if (wave < 5) return 0;
+    return (wave - 5) / 4;
+}
+
+inline const char* titanSurgeName(int tier) {
+    switch (tier) {
+        case 0: return "";
+        case 1: return "TITAN SURGE I";
+        case 2: return "TITAN CATACLYSM II";
+        case 3: return "TITAN APOCALYPSE III";
+        case 4: return "TITAN EXTINCTION IV";
+        default: return "TITAN ANNIHILATION";
+    }
+}
+
+struct TitanSurgeStats {
+    int tier = 0;
+    float hpMultiplier = 1.0f;
+    float speedMultiplier = 1.0f;
+    int armorBonus = 0;
+    float siegeDamageMultiplier = 1.0f;
+    float affixChance = 0.0f;
+};
+
+inline TitanSurgeStats calcTitanSurge(int wave, const std::string& difficulty) {
+    TitanSurgeStats s;
+    if (difficulty == "easy") return s; // Easy mode maintains standard intro curve for tests & learners
+
+    s.tier = titanSurgeTier(wave);
+    if (s.tier <= 0) return s;
+
+    // Exponential scaling base factor per tier (every 4 waves after Wave 5)
+    float baseGrowth = 1.85f;
+    if (difficulty == "nightmare") baseGrowth = 2.45f;
+    else if (difficulty == "hard") baseGrowth = 2.15f;
+
+    float tierF = static_cast<float>(s.tier);
+    // Exponential formula: (baseGrowth)^tier
+    float hpExp = 1.0f;
+    for (int i = 0; i < s.tier; ++i) hpExp *= baseGrowth;
+    s.hpMultiplier = hpExp;
+
+    s.speedMultiplier = 1.0f + 0.12f * tierF;
+    s.armorBonus = 2 * s.tier;
+
+    float siegeExp = 1.0f;
+    for (int i = 0; i < s.tier; ++i) siegeExp *= 1.35f;
+    s.siegeDamageMultiplier = siegeExp;
+
+    s.affixChance = std::min(0.85f, 0.20f + 0.15f * tierF);
+    return s;
+}
 
 inline bool isBoss(EnemyKind k) {
     return k == EnemyKind::Boss || k == EnemyKind::BossSiege;
